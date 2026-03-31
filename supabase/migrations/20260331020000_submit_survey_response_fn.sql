@@ -9,12 +9,13 @@ CREATE OR REPLACE FUNCTION submit_survey_response(
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = ''
 AS $$
 DECLARE
   v_row jsonb;
 BEGIN
   -- Burn the token atomically: DELETE returns nothing if already used/missing
-  DELETE FROM participation_tokens
+  DELETE FROM public.participation_tokens
   WHERE id = p_token_id
     AND survey_id = p_survey_id
     AND used_at IS NULL;
@@ -27,7 +28,7 @@ BEGIN
   -- Insert all response rows
   FOR v_row IN SELECT * FROM jsonb_array_elements(p_responses)
   LOOP
-    INSERT INTO responses (survey_id, question_id, answer, department_id)
+    INSERT INTO public.responses (survey_id, question_id, answer, department_id)
     VALUES (
       p_survey_id,
       (v_row->>'question_id')::uuid,
@@ -38,5 +39,5 @@ BEGIN
 END;
 $$;
 
--- Allow the anon/service role to call this function
+-- Allow the service role to call this function
 GRANT EXECUTE ON FUNCTION submit_survey_response(uuid, uuid, jsonb) TO service_role;
