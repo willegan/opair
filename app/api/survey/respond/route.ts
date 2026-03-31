@@ -59,14 +59,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Token already used' }, { status: 410 })
   }
 
-  const survey = tokenData.surveys as {
+  const survey = (tokenData.surveys as unknown) as {
     id: string
     title: string
     status: string
     open_date: string | null
     close_date: string | null
   }
-  const staffRecord = tokenData.staff as { department_id: string }
+  const staffRecord = (tokenData.staff as unknown) as { department_id: string }
 
   // Check survey is active and within date window
   if (survey.status !== 'active') {
