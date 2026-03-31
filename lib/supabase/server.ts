@@ -1,13 +1,15 @@
 import { createServerClient as createSSRServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
+import type { CookieOptions } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 /**
  * Server-side Supabase client using anon key + cookie-based auth.
- * Use in Server Components and API Routes that need user context.
+ * Use in Server Components and Route Handlers that need user context.
+ * Must be awaited: `const supabase = await createClient()`
  */
-export function createServerClient() {
-  const cookieStore = cookies()
+export async function createClient() {
+  const cookieStore = await cookies()
 
   return createSSRServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,7 +19,7 @@ export function createServerClient() {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
@@ -35,11 +37,11 @@ export function createServerClient() {
 
 /**
  * Service-role Supabase client — bypasses RLS.
- * Use ONLY in server-side code (API routes, server actions) for admin operations.
+ * Use ONLY in server-side code (Route Handlers, server actions) for admin operations.
  * NEVER expose this client to the browser.
  */
 export function createAdminClient() {
-  return createClient(
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
