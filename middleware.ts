@@ -31,7 +31,13 @@ export async function middleware(request: NextRequest) {
   )
 
   // Refresh the session — this keeps the user logged in
-  await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Admin route protection
+  const pathname = request.nextUrl.pathname
+  if (pathname.startsWith('/admin') && pathname !== '/admin/login' && !user) {
+    return NextResponse.redirect(new URL('/admin/login', request.url))
+  }
 
   return supabaseResponse
 }
