@@ -6,6 +6,50 @@ Built with **Next.js 14 + TypeScript + Tailwind CSS + Supabase**.
 
 ---
 
+## Deployment
+
+### Vercel
+
+This project is designed for zero-config deployment on Vercel.
+
+#### Setup
+
+1. Connect the GitHub repo to a new Vercel project
+2. Set the following environment variables in the Vercel dashboard (Project → Settings → Environment Variables):
+
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (from Supabase project settings) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/public key (safe to expose to browser) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (**Production/Preview only, never commit**) |
+
+3. Deploy — Vercel auto-detects Next.js and builds with `next build`.
+
+#### Supabase Setup
+
+1. Create a Supabase project at [supabase.com](https://supabase.com)
+2. Run migrations to set up the database schema:
+   ```bash
+   supabase db push
+   ```
+3. Copy the Project URL and anon key from: Supabase Dashboard → Project Settings → API
+
+> **Security note:** Never hardcode credentials in source code. Use environment variables exclusively.
+
+### CI/CD (GitHub Actions)
+
+The `.github/workflows/ci.yml` pipeline runs on every pull request and push to `main`:
+
+| Job | Command | Description |
+|---|---|---|
+| `type-check` | `tsc --noEmit` | TypeScript strict type checking |
+| `lint` | `npm run lint` | ESLint (Next.js config) |
+| `build` | `npm run build` | Full Next.js production build |
+
+The `build` job only runs after `type-check` and `lint` both pass.
+
+---
+
 ## Local Development
 
 ### Prerequisites
@@ -138,4 +182,4 @@ _(See issue #31 — this script is implemented as part of the seed data epic.)_
 | Database | Supabase (Postgres) |
 | Auth | Supabase Auth (email/password) |
 | ORM | Supabase JS client (type-safe) |
-| Deployment | Vercel (planned) |
+| Deployment | Vercel |
