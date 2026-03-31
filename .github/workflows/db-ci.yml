@@ -1,0 +1,56 @@
+name: Database Migration CI
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/seed.sql'
+      - 'supabase/config.toml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+
+jobs:
+  migration-lint:
+    name: SQL Syntax Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Validate SQL syntax (lint migrations)
+        # supabase db lint checks migrations against Postgres syntax rules
+        # without requiring a running database
+        run: |
+          supabase db lint --schema public
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          # Local-only validation doesn't need a remote project, but the CLI needs some project ref
+          # We skip remote checks by not providing SUPABASE_DB_PASSWORD
+
+  migration-test:
+    name: RLS Policy Tests (Local Supabase)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Apply migrations
+        run: supabase db reset --local
+
+      - name: Run pgTAP tests
+        run: supabase test db
