@@ -33,6 +33,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Create Supabase roles
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres <<'SQL'
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+                CREATE ROLE anon NOLOGIN;
+              END IF;
+              IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+                CREATE ROLE authenticated NOLOGIN;
+              END IF;
+              IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
+                CREATE ROLE service_role NOLOGIN BYPASSRLS;
+              END IF;
+            END $$;
+          SQL
+
       - name: Validate SQL syntax (apply migrations to Postgres)
         env:
           PGPASSWORD: postgres
@@ -65,10 +88,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pgTAP
+      - name: Install PostgreSQL client
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client postgresql-15-pgtap
+          sudo apt-get install -y postgresql-client
+
+      - name: Create Supabase roles
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres <<'SQL'
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+                CREATE ROLE anon NOLOGIN;
+              END IF;
+              IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+                CREATE ROLE authenticated NOLOGIN;
+              END IF;
+              IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
+                CREATE ROLE service_role NOLOGIN BYPASSRLS;
+              END IF;
+            END $$;
+          SQL
 
       - name: Apply migrations
         env:
@@ -79,13 +120,7 @@ jobs:
             psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
           done
 
-      - name: Install pgTAP extension in DB
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
-
-      - name: Run pgTAP tests
+      - name: Run schema and policy tests
         env:
           PGPASSWORD: postgres
         run: |
@@ -95,5 +130,5 @@ jobs:
               psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
             done
           else
-            echo "No pgTAP test files found in supabase/tests/ — skipping."
+            echo "No test files found in supabase/tests/ — skipping."
           fi

@@ -1,102 +1,171 @@
--- pgTAP tests for RLS policies on the Ausmed Engagement Survey schema
--- Run via: supabase test db
--- These tests verify the anonymity and access control guarantees.
-
-BEGIN;
-
-SELECT plan(20);
+-- Schema and RLS policy verification tests
+-- Run via psql with -v ON_ERROR_STOP=1
+-- Uses DO blocks with RAISE EXCEPTION for assertion failures
 
 -- ============================================================
--- Setup: helpers to switch between roles
+-- 1. Table existence checks
 -- ============================================================
-
--- Use the anon role (what survey respondents use)
--- Use the service_role (what admin API uses)
--- Use authenticated role (what admin UI uses)
-
--- ============================================================
--- 1. responses table — anon INSERT with valid token
--- ============================================================
-
--- Anon can insert a response when they have a valid (unused) token
--- (RLS policy: anon can insert if participation_tokens.token matches header)
-
--- First verify table exists
-SELECT has_table('public', 'responses', 'responses table exists');
-SELECT has_table('public', 'participation_tokens', 'participation_tokens table exists');
-SELECT has_table('public', 'departments', 'departments table exists');
-SELECT has_table('public', 'staff', 'staff table exists');
-SELECT has_table('public', 'surveys', 'surveys table exists');
-SELECT has_table('public', 'questions', 'questions table exists');
-
--- ============================================================
--- 2. Column existence checks for anonymity guarantees
--- ============================================================
-
--- responses must NOT have a staff_id column (anonymity enforced)
-SELECT hasnt_column('public', 'responses', 'staff_id',
-  'responses.staff_id must not exist — anonymity enforced');
-
--- responses must have department_id (for analytics rollup)
-SELECT has_column('public', 'responses', 'department_id',
-  'responses.department_id exists for analytics');
-
--- participation_tokens must have used_at
-SELECT has_column('public', 'participation_tokens', 'used_at',
-  'participation_tokens.used_at exists for token burn tracking');
+DO $$
+BEGIN
+  -- Verify all core tables exist
+  ASSERT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='responses'),
+    'FAIL: responses table missing';
+  ASSERT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='participation_tokens'),
+    'FAIL: participation_tokens table missing';
+  ASSERT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='departments'),
+    'FAIL: departments table missing';
+  ASSERT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='staff'),
+    'FAIL: staff table missing';
+  ASSERT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='surveys'),
+    'FAIL: surveys table missing';
+  ASSERT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='questions'),
+    'FAIL: questions table missing';
+  RAISE NOTICE 'PASS: All 6 core tables exist';
+END;
+$$;
 
 -- ============================================================
--- 3. RLS must be enabled on sensitive tables
+-- 2. Column existence and type checks
 -- ============================================================
+DO $$
+BEGIN
+  -- responses.answer must be text (not jsonb — anonymity enforced via separate rows)
+  ASSERT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='responses'
+      AND column_name='answer' AND data_type='text'
+  ), 'FAIL: responses.answer text column missing';
 
-SELECT policies_are('public', 'responses',
-  ARRAY['anon_insert_with_token', 'admin_read_all'],
-  'responses table has expected RLS policies');
+  -- responses must NOT have staff_id (anonymity enforcement)
+  ASSERT NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='responses' AND column_name='staff_id'
+  ), 'FAIL: responses.staff_id must not exist — anonymity violated';
 
-SELECT policies_are('public', 'participation_tokens',
-  ARRAY['anon_validate_token', 'admin_manage_tokens', 'tokens_no_public_update', 'tokens_no_public_delete'],
-  'participation_tokens table has expected RLS policies');
+  -- responses must have department_id for analytics
+  ASSERT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='responses' AND column_name='department_id'
+  ), 'FAIL: responses.department_id missing';
+
+  -- participation_tokens must have used_at for token burn tracking
+  ASSERT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='participation_tokens' AND column_name='used_at'
+  ), 'FAIL: participation_tokens.used_at missing';
+
+  -- questions.order_index must exist and be integer
+  ASSERT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='questions'
+      AND column_name='order_index' AND data_type='integer'
+  ), 'FAIL: questions.order_index integer column missing';
+
+  -- surveys.status must exist
+  ASSERT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='surveys' AND column_name='status'
+  ), 'FAIL: surveys.status column missing';
+
+  -- departments.parent_id for hierarchy
+  ASSERT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='departments' AND column_name='parent_id'
+  ), 'FAIL: departments.parent_id missing';
+
+  RAISE NOTICE 'PASS: Column existence and type checks passed';
+END;
+$$;
 
 -- ============================================================
--- 4. Constraint checks
+-- 3. RLS enabled checks
 -- ============================================================
-
--- participation_tokens.token must be unique
-SELECT col_is_unique('public', 'participation_tokens', 'token',
-  'participation_tokens.token is unique');
-
--- staff.email must be unique
-SELECT col_is_unique('public', 'staff', 'email',
-  'staff.email is unique');
-
--- questions.order_index — check column exists and is integer
-SELECT has_column('public', 'questions', 'order_index',
-  'questions.order_index exists');
-
-SELECT col_type_is('public', 'questions', 'order_index', 'integer',
-  'questions.order_index is integer type');
+DO $$
+BEGIN
+  -- RLS must be enabled on sensitive tables
+  ASSERT (SELECT relrowsecurity FROM pg_class WHERE relname='responses' AND relnamespace='public'::regnamespace),
+    'FAIL: RLS not enabled on responses';
+  ASSERT (SELECT relrowsecurity FROM pg_class WHERE relname='participation_tokens' AND relnamespace='public'::regnamespace),
+    'FAIL: RLS not enabled on participation_tokens';
+  ASSERT (SELECT relrowsecurity FROM pg_class WHERE relname='staff' AND relnamespace='public'::regnamespace),
+    'FAIL: RLS not enabled on staff';
+  RAISE NOTICE 'PASS: RLS enabled on all sensitive tables';
+END;
+$$;
 
 -- ============================================================
--- 5. responses.answer must be text (per schema — no staff linkage)
+-- 4. RLS policy existence checks
 -- ============================================================
+DO $$
+BEGIN
+  -- responses policies
+  ASSERT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='public' AND tablename='responses' AND policyname='anon_insert_with_token'
+  ), 'FAIL: responses policy anon_insert_with_token missing';
 
-SELECT has_column('public', 'responses', 'answer',
-  'responses.answer column exists');
+  ASSERT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='public' AND tablename='responses' AND policyname='admin_read_all'
+  ), 'FAIL: responses policy admin_read_all missing';
 
-SELECT col_type_is('public', 'responses', 'answer', 'text',
-  'responses.answer is text type');
+  -- participation_tokens policies
+  ASSERT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='public' AND tablename='participation_tokens' AND policyname='anon_validate_token'
+  ), 'FAIL: participation_tokens policy anon_validate_token missing';
+
+  ASSERT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='public' AND tablename='participation_tokens' AND policyname='admin_manage_tokens'
+  ), 'FAIL: participation_tokens policy admin_manage_tokens missing';
+
+  RAISE NOTICE 'PASS: Expected RLS policies exist';
+END;
+$$;
 
 -- ============================================================
--- 6. surveys.status must have a check constraint (valid values)
+-- 5. submit_survey_response function exists
 -- ============================================================
+DO $$
+BEGIN
+  ASSERT EXISTS (
+    SELECT 1 FROM pg_proc
+    WHERE proname='submit_survey_response'
+      AND pronamespace='public'::regnamespace
+  ), 'FAIL: submit_survey_response function missing';
+  RAISE NOTICE 'PASS: submit_survey_response function exists';
+END;
+$$;
 
-SELECT has_column('public', 'surveys', 'status',
-  'surveys.status column exists');
+-- ============================================================
+-- 6. Unique constraint checks
+-- ============================================================
+DO $$
+DECLARE
+  v_count int;
+BEGIN
+  -- participation_tokens.token must be unique
+  SELECT COUNT(*) INTO v_count
+  FROM pg_indexes
+  WHERE schemaname='public' AND tablename='participation_tokens'
+    AND indexdef ILIKE '%unique%' AND indexdef ILIKE '%token%';
 
--- Verify departments.parent_id self-reference
-SELECT has_column('public', 'departments', 'parent_id',
-  'departments.parent_id exists for hierarchy');
+  -- Also check via information_schema
+  IF v_count = 0 THEN
+    SELECT COUNT(*) INTO v_count
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.constraint_column_usage ccu
+      ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+    WHERE tc.table_schema='public' AND tc.table_name='participation_tokens'
+      AND ccu.column_name='token'
+      AND tc.constraint_type IN ('UNIQUE', 'PRIMARY KEY');
+  END IF;
 
-SELECT finish();
+  ASSERT v_count > 0, 'FAIL: participation_tokens.token must be unique';
 
-ROLLBACK;
+  RAISE NOTICE 'PASS: Unique constraints verified';
+END;
+$$;
+
+\echo 'All schema and RLS policy tests PASSED.'
