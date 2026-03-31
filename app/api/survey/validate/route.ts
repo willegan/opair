@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   // Query participation_tokens by token value (join survey)
   const { data: tokenData, error: tokenError } = await supabase
     .from('participation_tokens')
-    .select('*, surveys(*)')
+    .select('*, surveys(id, title, status, open_date, close_date)')
     .eq('token', token)
     .single()
 
@@ -31,24 +31,23 @@ export async function GET(request: NextRequest) {
   const survey = tokenData.surveys as {
     id: string
     title: string
-    description: string | null
     status: string
-    start_date: string | null
-    end_date: string | null
+    open_date: string | null
+    close_date: string | null
   }
 
-  // 403 if survey not open
-  if (survey.status !== 'open') {
-    return NextResponse.json({ error: 'Survey not open' }, { status: 403 })
+  // 403 if survey not active
+  if (survey.status !== 'active') {
+    return NextResponse.json({ error: 'Survey is not active' }, { status: 403 })
   }
 
   // Check date window
   const now = new Date().toISOString()
-  if (survey.start_date && now < survey.start_date) {
-    return NextResponse.json({ error: 'Survey not yet started' }, { status: 403 })
+  if (survey.open_date && now < survey.open_date) {
+    return NextResponse.json({ error: 'Survey not yet open' }, { status: 403 })
   }
-  if (survey.end_date && now > survey.end_date) {
-    return NextResponse.json({ error: 'Survey has ended' }, { status: 403 })
+  if (survey.close_date && now > survey.close_date) {
+    return NextResponse.json({ error: 'Survey has closed' }, { status: 403 })
   }
 
   // Fetch questions ordered by order_index
@@ -65,7 +64,6 @@ export async function GET(request: NextRequest) {
   const response: ValidateSurveyResponse = {
     survey_id: survey.id,
     title: survey.title,
-    description: survey.description,
     questions: questions ?? [],
   }
 
