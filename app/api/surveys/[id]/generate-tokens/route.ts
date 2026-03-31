@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { randomBytes } from 'crypto'
 
 export async function POST(
@@ -18,7 +17,7 @@ export async function POST(
   // Await params (Next.js 15)
   const { id: surveyId } = await params
 
-  const supabaseAdmin = await createAdminClient()
+  const supabaseAdmin = createAdminClient()
 
   // Fetch all staff
   const { data: staff, error: staffError } = await supabaseAdmin
@@ -34,17 +33,17 @@ export async function POST(
   }
 
   // Generate tokens for each staff member
-  const tokens = staff.map((s) => ({
+  const tokens = staff.map((s: { id: string }) => ({
     staff_id: s.id,
     survey_id: surveyId,
-    token: randomBytes(32).toString('hex')
+    token: randomBytes(32).toString('hex'),
   }))
 
-  // Upsert with onConflict: 'staff_id,survey_id'
+  // Upsert with onConflict: 'staff_id,survey_id' to avoid duplicates
   const { error: upsertError } = await supabaseAdmin
     .from('participation_tokens')
     .upsert(tokens, {
-      onConflict: 'staff_id,survey_id'
+      onConflict: 'staff_id,survey_id',
     })
 
   if (upsertError) {

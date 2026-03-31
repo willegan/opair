@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { ValidateSurveyResponse } from '@/lib/types/survey'
+import type { ValidateSurveyResponse } from '@/lib/types/survey'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -10,9 +10,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Token required' }, { status: 400 })
   }
 
-  const supabase = await createAdminClient()
+  const supabase = createAdminClient()
 
-  // Query participation_tokens by token
+  // Query participation_tokens by token value (join survey)
   const { data: tokenData, error: tokenError } = await supabase
     .from('participation_tokens')
     .select('*, surveys(*)')
@@ -23,19 +23,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Token not found' }, { status: 404 })
   }
 
-  // 410 if used_at != null
+  // 410 Gone if already used
   if (tokenData.used_at !== null) {
     return NextResponse.json({ error: 'Token already used' }, { status: 410 })
   }
 
-  const survey = tokenData.surveys
+  const survey = tokenData.surveys as {
+    id: string
+    title: string
+    description: string | null
+    status: string
+    start_date: string | null
+    end_date: string | null
+  }
 
-  // 403 if survey status != 'open'
+  // 403 if survey not open
   if (survey.status !== 'open') {
     return NextResponse.json({ error: 'Survey not open' }, { status: 403 })
   }
 
-  // Check date range
+  // Check date window
   const now = new Date().toISOString()
   if (survey.start_date && now < survey.start_date) {
     return NextResponse.json({ error: 'Survey not yet started' }, { status: 403 })
@@ -59,7 +66,7 @@ export async function GET(request: NextRequest) {
     survey_id: survey.id,
     title: survey.title,
     description: survey.description,
-    questions: questions || []
+    questions: questions ?? [],
   }
 
   return NextResponse.json(response)
