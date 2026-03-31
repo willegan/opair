@@ -309,7 +309,7 @@ export async function GET(
   const questionCount = (questions ?? []).length
 
   const byDepartment: DepartmentBreakdownItem[] = []
-  for (const [deptId, stats] of responsesByDept.entries()) {
+  for (const [deptId, stats] of Array.from(responsesByDept.entries())) {
     const respondentEstimate = questionCount > 0
       ? Math.round(stats.total / questionCount)
       : 0
