@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Survey has closed' }, { status: 403 })
   }
 
-  // Verify all answered questions belong to this survey and all questions are answered
+  // Verify all answered questions belong to this survey and all required questions are answered
   const { data: questions, error: questionsError } = await supabase
     .from('questions')
     .select('id, required')
@@ -117,31 +117,29 @@ export async function POST(request: NextRequest) {
 
   const departmentId = staffRecord.department_id
 
-  // Insert responses — NO staff_id (anonymity enforced at schema level)
+  // Build the responses payload for the atomic RPC call
+  // NO staff_id in response rows — anonymity enforced at schema level
   const responseRows = answers.map((ans) => ({
-    survey_id: survey.id,
     question_id: ans.question_id,
     answer: String(ans.answer),
     department_id: departmentId,
   }))
 
-  const { error: insertError } = await supabase
-    .from('responses')
-    .insert(responseRows)
+  // Atomically burn token + insert responses in a single Postgres transaction.
+  // If either operation fails (e.g. token already used), the entire transaction rolls back,
+  // preventing double-submission or orphaned responses.
+  const { error: rpcError } = await supabase.rpc('submit_survey_response', {
+    p_token_id: tokenData.id,
+    p_survey_id: survey.id,
+    p_responses: responseRows,
+  })
 
-  if (insertError) {
+  if (rpcError) {
+    if (rpcError.message.includes('invalid_or_used_token')) {
+      return NextResponse.json({ error: 'Token already used' }, { status: 410 })
+    }
+    console.error('submit_survey_response RPC error:', rpcError.message)
     return NextResponse.json({ error: 'Failed to save responses' }, { status: 500 })
-  }
-
-  // Stamp used_at on SUBMISSION (not validation) — allows network retries before submit
-  const { error: stampError } = await supabase
-    .from('participation_tokens')
-    .update({ used_at: new Date().toISOString() })
-    .eq('id', tokenData.id)
-
-  if (stampError) {
-    // Responses already inserted — log but don't fail (idempotency handled by used_at check)
-    console.error('Failed to stamp token used_at:', stampError.message)
   }
 
   return NextResponse.json({ success: true })
