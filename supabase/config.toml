@@ -1,6 +1,6 @@
 # Supabase configuration
 # Project URL: https://kkmyokfipaavjmlebjgq.supabase.co
-# project_id = "kkmyokfipaavjmlebjgq"
+project_id = "kkmyokfipaavjmlebjgq"
 
 [api]
 # Port to use for the local Supabase API server

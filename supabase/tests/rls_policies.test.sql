@@ -54,7 +54,7 @@ SELECT policies_are('public', 'responses',
   'responses table has expected RLS policies');
 
 SELECT policies_are('public', 'participation_tokens',
-  ARRAY['anon_validate_token', 'admin_manage_tokens'],
+  ARRAY['anon_validate_token', 'admin_manage_tokens', 'tokens_no_public_update', 'tokens_no_public_delete'],
   'participation_tokens table has expected RLS policies');
 
 -- ============================================================
@@ -77,14 +77,14 @@ SELECT col_type_is('public', 'questions', 'order_index', 'integer',
   'questions.order_index is integer type');
 
 -- ============================================================
--- 5. responses.answers must be jsonb
+-- 5. responses.answer must be text (per schema — no staff linkage)
 -- ============================================================
 
-SELECT has_column('public', 'responses', 'answers',
-  'responses.answers column exists');
+SELECT has_column('public', 'responses', 'answer',
+  'responses.answer column exists');
 
-SELECT col_type_is('public', 'responses', 'answers', 'jsonb',
-  'responses.answers is jsonb');
+SELECT col_type_is('public', 'responses', 'answer', 'text',
+  'responses.answer is text type');
 
 -- ============================================================
 -- 6. surveys.status must have a check constraint (valid values)

@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'supabase/migrations/**'
-      - 'supabase/seed.sql'
+      - 'supabase/tests/**'
       - 'supabase/config.toml'
   push:
     branches: [main]
@@ -16,41 +16,84 @@ jobs:
     name: SQL Syntax Validation
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Validate SQL syntax (lint migrations)
-        # supabase db lint checks migrations against Postgres syntax rules
-        # without requiring a running database
-        run: |
-          supabase db lint --schema public
+      - name: Validate SQL syntax (apply migrations to Postgres)
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          # Local-only validation doesn't need a remote project, but the CLI needs some project ref
-          # We skip remote checks by not providing SUPABASE_DB_PASSWORD
+          PGPASSWORD: postgres
+        run: |
+          echo "Applying all migration files to validate SQL syntax..."
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            echo "  Applying: $f"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+          done
+          echo "All migrations applied successfully — SQL syntax valid."
 
   migration-test:
     name: RLS Policy Tests (Local Supabase)
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Start local Supabase
-        run: supabase start
+      - name: Install pgTAP
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client postgresql-15-pgtap
 
       - name: Apply migrations
-        run: supabase db reset --local
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            echo "Applying: $f"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Install pgTAP extension in DB
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
 
       - name: Run pgTAP tests
-        run: supabase test db
+        env:
+          PGPASSWORD: postgres
+        run: |
+          if ls supabase/tests/*.sql 1>/dev/null 2>&1; then
+            for f in $(ls supabase/tests/*.sql | sort); do
+              echo "Running test: $f"
+              psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+            done
+          else
+            echo "No pgTAP test files found in supabase/tests/ — skipping."
+          fi

@@ -34,8 +34,8 @@ AS $$
       AND pt.survey_id = p_survey_id
       AND pt.used_at IS NULL
       AND s.status = 'active'
-      AND (s.opens_at IS NULL OR s.opens_at <= now())
-      AND (s.closes_at IS NULL OR s.closes_at >= now())
+      AND (s.open_date IS NULL OR s.open_date <= CURRENT_DATE)
+      AND (s.close_date IS NULL OR s.close_date >= CURRENT_DATE)
   );
 $$;
 
@@ -54,7 +54,7 @@ GRANT EXECUTE ON FUNCTION is_valid_unused_token(text, uuid) TO anon, authenticat
 -- Actual token matching is handled at the application layer via service_role,
 -- but we add a DB-level guard using a session variable set by the API route.
 -- The API route sets: SET LOCAL app.submission_token = '<token>';
-CREATE POLICY "responses_insert_with_valid_token" ON responses
+CREATE POLICY "anon_insert_with_token" ON responses
   FOR INSERT
   TO anon, authenticated
   WITH CHECK (
@@ -64,6 +64,12 @@ CREATE POLICY "responses_insert_with_valid_token" ON responses
     )
   );
 
+-- Admin (authenticated) can read all responses
+CREATE POLICY "admin_read_all" ON responses
+  FOR SELECT
+  TO authenticated
+  USING (true);
+
 -- ============================================================
 -- PARTICIPATION_TOKENS table
 -- ============================================================
@@ -71,14 +77,14 @@ CREATE POLICY "responses_insert_with_valid_token" ON responses
 -- Anon users can SELECT their own token row (by token value) so the
 -- validate endpoint can confirm token existence and survey linkage.
 -- No other rows are visible (the WHERE clause acts as a filter).
-CREATE POLICY "tokens_select_own" ON participation_tokens
+CREATE POLICY "anon_validate_token" ON participation_tokens
   FOR SELECT
   TO anon, authenticated
   USING (token = current_setting('app.submission_token', true));
 
 -- INSERT/UPDATE/DELETE: service_role only (bypasses RLS automatically)
 -- Deny all other mutations from public roles
-CREATE POLICY "tokens_no_public_write" ON participation_tokens
+CREATE POLICY "admin_manage_tokens" ON participation_tokens
   AS RESTRICTIVE
   FOR INSERT
   TO anon, authenticated
